@@ -5,7 +5,7 @@ import { PassportAiService } from "./services/passport-ai.service";
 async function main() {
   const service = new GoogleVisionService();
 
-  const result = await service.extract(
+  const result = await service.extractFromUrl(
     "https://media.squaremetre.io/DocumentLicence/fandyglitch9@gmail.comPassportUploadByLink_Ovz0pIfu",
   );
 

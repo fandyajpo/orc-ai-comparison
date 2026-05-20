@@ -18,7 +18,16 @@ export type Timing = {
   totalMs: number;
 };
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Input bisa url, base64, atau file
+export type ImageInput =
+  | { type: "url"; value: string }
+  | { type: "base64"; value: string; mimeType?: string }
+  | { type: "file"; value: Buffer | Uint8Array };
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+});
 
 const PASSPORT_SCHEMA = {
   type: "object",
@@ -108,7 +117,6 @@ const PASSPORT_SCHEMA = {
   ],
   additionalProperties: false,
 } as const;
-
 export type PassportData = {
   birthDate: { value: string | null };
   birthPlace: { value: string | null };
@@ -130,17 +138,16 @@ export class GoogleVisionService {
     if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
       throw new Error("GOOGLE_CREDENTIALS_BASE64 env var is not set");
     }
-
     const credentials = JSON.parse(
       Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64!, "base64").toString(
         "utf-8",
       ),
     );
-
     this.client = new ImageAnnotatorClient({ credentials });
   }
 
-  async extract(imageUrl: string): Promise<{
+  // ✅ Method utama — terima semua jenis input
+  async extract(input: ImageInput): Promise<{
     raw: string;
     passport: PassportData;
     usage: ParseUsage;
@@ -148,16 +155,14 @@ export class GoogleVisionService {
   }> {
     const total = Date.now();
 
-    // 1. Fetch image
+    // 1. Resolve ke Buffer
     const t1 = Date.now();
-    const response = await axios.get<ArrayBuffer>(imageUrl, {
-      responseType: "arraybuffer",
-    });
+    const rawBuffer = await this.resolveToBuffer(input);
     const fetchMs = Date.now() - t1;
 
-    // 2. Compress image
+    // 2. Compress
     const t2 = Date.now();
-    const compressed = await sharp(Buffer.from(response.data))
+    const compressed = await sharp(rawBuffer)
       .resize(1600, undefined, { withoutEnlargement: true })
       .sharpen()
       .jpeg({ quality: 85 })
@@ -172,7 +177,7 @@ export class GoogleVisionService {
     const rawText = result.fullTextAnnotation?.text ?? "";
     const ocrMs = Date.now() - t3;
 
-    // 4. Parse via GPT-4.1-mini
+    // 4. Parse via GPT
     const t4 = Date.now();
     const gpt = await this.parsePassportData(rawText);
     const parseMs = Date.now() - t4;
@@ -191,11 +196,50 @@ export class GoogleVisionService {
     };
   }
 
+  // ✅ Shorthand methods biar lebih ergonomis
+  async extractFromUrl(url: string) {
+    return this.extract({ type: "url", value: url });
+  }
+
+  async extractFromBase64(base64: string, mimeType?: string) {
+    return this.extract({ type: "base64", value: base64, mimeType });
+  }
+
+  async extractFromFile(buffer: Buffer | Uint8Array) {
+    return this.extract({ type: "file", value: buffer });
+  }
+
+  // ✅ Resolve semua jenis input ke Buffer
+  private async resolveToBuffer(input: ImageInput): Promise<Buffer> {
+    switch (input.type) {
+      case "url": {
+        const response = await axios.get<ArrayBuffer>(input.value, {
+          responseType: "arraybuffer",
+        });
+        return Buffer.from(response.data);
+      }
+
+      case "base64": {
+        // Handle kalau ada prefix "data:image/jpeg;base64,..."
+        const raw = input.value.includes(",")
+          ? input.value.split(",")[1]
+          : input.value;
+        return Buffer.from(raw, "base64");
+      }
+
+      case "file": {
+        return Buffer.isBuffer(input.value)
+          ? input.value
+          : Buffer.from(input.value);
+      }
+    }
+  }
+
   private async parsePassportData(
     rawText: string,
   ): Promise<{ passport: PassportData; usage: ParseUsage }> {
     const response = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: "openai/gpt-4.1-mini",
       messages: [
         {
           role: "system",
