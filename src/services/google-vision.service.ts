@@ -1,4 +1,3 @@
-// 6feca8da4d48a1c1cd4911c25a39c48672c40cc4
 import { ImageAnnotatorClient } from "@google-cloud/vision";
 import OpenAI from "openai";
 import axios from "axios";
