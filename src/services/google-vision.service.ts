@@ -24,10 +24,10 @@ export type ImageInput =
   | { type: "base64"; value: string; mimeType?: string }
   | { type: "file"; value: Buffer | Uint8Array };
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-});
+// const openai = new OpenAI({
+//   apiKey: process.env.OPENROUTER_API_KEY,
+//   baseURL: "https://openrouter.ai/api/v1",
+// });
 
 const PASSPORT_SCHEMA = {
   type: "object",
@@ -132,6 +132,7 @@ export type PassportData = {
 };
 
 export class GoogleVisionService {
+  private openai: OpenAI;
   private client: ImageAnnotatorClient;
 
   constructor() {
@@ -144,6 +145,11 @@ export class GoogleVisionService {
       ),
     );
     this.client = new ImageAnnotatorClient({ credentials });
+
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+    });
   }
 
   // ✅ Method utama — terima semua jenis input
@@ -238,7 +244,7 @@ export class GoogleVisionService {
   private async parsePassportData(
     rawText: string,
   ): Promise<{ passport: PassportData; usage: ParseUsage }> {
-    const response = await openai.chat.completions.create({
+    const response = await this.openai.chat.completions.create({
       model: "openai/gpt-4.1-mini",
       messages: [
         {
